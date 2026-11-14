@@ -49,36 +49,38 @@ def fetch_news(ticker: str) -> str:
     url = "https://newsapi.org/v2/everything"
     from_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
     params = {
-        "q": ticker,
+        "q": f"{ticker} stock OR earnings OR market",
         "from": from_date,
         "sortBy": "relevancy",
         "language": "en",
         "pageSize": 10,
         "apiKey": NEWSAPI_KEY
     }
-    
+
     response = requests.get(url, params=params)
     if response.status_code != 200:
         return f"Error fetching news: {response.status_code} - {response.text}"
-    
-    article = response.json().get('articles', [])
-    for article in article:
-        title = article.get('title', 'No Title')
-        description = article.get('description', 'No Description')
-        url = article.get('url', 'No URL')
-        source = article.get('source',{}).get('name')
+
+    articles = response.json().get('articles', [])
+    if not articles:
+        return f"No recent news found for {ticker}"
+
+    results = []  # ← list not string
+    for article in articles[:5]:
+        title = article.get('title', 'N/A')
+        description = article.get('description', 'N/A')
+        source = article.get('source', {}).get('name', 'N/A')
         published_at = article.get('publishedAt', '')[:10]
-        
-        result = f"""
-        Title: {title}
-        Description: {description}
-        URL: {url}
-        Source: {source}
-        Published At: {published_at}
-        """
-        
-    return f"RECENT NEWS FOR {ticker}\n" + "\n".join(result)
-    
+
+        results.append(
+            f"Title: {title}\n"
+            f"Source: {source}\n"
+            f"Date: {published_at}\n"
+            f"Summary: {description}\n"
+        )
+
+    return f"RECENT NEWS FOR {ticker}\n\n" + "\n---\n".join(results)
+
 def fetch_filings(ticker: str) -> str:
     """Fetch latest SEC filing summary from EDGAR for a ticker."""
     # Get CIK number from ticker
