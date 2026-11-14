@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
+USER_EMAIL = os.getenv("USER_EMAIL")
 
 def fetch_price_data(ticker: str) -> str:
     stock = yf.Ticker(ticker)
@@ -43,3 +44,97 @@ def fetch_price_data(ticker: str) -> str:
     """
     
     return result
+
+def fetch_news(ticker: str) -> str:
+    url = "https://newsapi.org/v2/everything"
+    from_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+    params = {
+        "q": ticker,
+        "from": from_date,
+        "sortBy": "relevancy",
+        "language": "en",
+        "pageSize": 10,
+        "apiKey": NEWSAPI_KEY
+    }
+    
+    response = requests.get(url, params=params)
+    if response.status_code != 200:
+        return f"Error fetching news: {response.status_code} - {response.text}"
+    
+    article = response.json().get('articles', [])
+    for article in article:
+        title = article.get('title', 'No Title')
+        description = article.get('description', 'No Description')
+        url = article.get('url', 'No URL')
+        source = article.get('source',{}).get('name')
+        published_at = article.get('publishedAt', '')[:10]
+        
+        result = f"""
+        Title: {title}
+        Description: {description}
+        URL: {url}
+        Source: {source}
+        Published At: {published_at}
+        """
+        
+    return f"RECENT NEWS FOR {ticker}\n" + "\n".join(result)
+    
+def fetch_filings(ticker: str) -> str:
+    """Fetch latest SEC filing summary from EDGAR for a ticker."""
+    # Get CIK number from ticker
+    search_url = f"https://efts.sec.gov/LATEST/search-index?q=%22{ticker}%22&dateRange=custom&startdt=2024-01-01&forms=10-K,10-Q"
+    headers = {"User-Agent": "TradeMind research@trademind.com"}
+
+    try:
+        # Look up CIK
+        cik_url = f"https://www.sec.gov/cgi-bin/browse-edgar?company=&CIK={ticker}&type=10-Q&dateb=&owner=include&count=1&search_text=&action=getcompany&output=atom"
+        cik_res = requests.get(cik_url, headers=headers, timeout=10)
+
+        # Get recent filings via EDGAR full-text search
+        search_res = requests.get(
+            f"https://efts.sec.gov/LATEST/search-index?q=%22{ticker}%22&forms=10-Q&dateRange=custom&startdt=2024-01-01",
+            headers=headers,
+            timeout=10
+        )
+
+        if search_res.status_code != 200:
+            return f"Could not fetch SEC filings for {ticker}"
+
+        data = search_res.json()
+        hits = data.get("hits", {}).get("hits", [])
+
+        if not hits:
+            return f"No recent SEC filings found for {ticker}"
+
+        # Extract text snippets from top 3 filings
+        texts = []
+        for hit in hits[:3]:
+            source = hit.get("_source", {})
+            texts.append(f"""
+            Filing: {source.get('form_type', 'N/A')}
+            Date: {source.get('file_date', 'N/A')}
+            Company: {source.get('display_names', 'N/A')}
+            Extract: {source.get('period_of_report', 'N/A')}
+            """)
+
+        return f"SEC FILINGS FOR {ticker}\n" + "\n".join(texts)
+
+    except Exception as e:
+        return f"Error fetching SEC filings for {ticker}: {str(e)}"
+    
+
+def ingest_ticker(ticker: str) -> dict:
+    ticker = ticker.upper().strip()
+    print(f"Ingesting data for {ticker}...")
+
+    price_text = fetch_price_data(ticker)
+    filings_text = fetch_filings(ticker)
+    news_text = fetch_news(ticker)
+
+    return {
+        "ticker": ticker,
+        "price": price_text,
+        "filings": filings_text,
+        "news": news_text,
+        "timestamp": datetime.now().isoformat(),
+    }
